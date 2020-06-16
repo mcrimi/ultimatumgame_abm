@@ -1,3 +1,7 @@
+## Agent based ultimatum game
+
+![Screenshot](https://github.com/mcrimi/ultimatumgame_abm/blob/master/world.png?raw=true)
+
 ## WHAT IS IT?
 
 This is a an excercise model that attempts to describe the emergence of cumulative wealth and the distribution of such wealth in an iterative ultimatum game, considering the prosocial emotion of "shame" and profit-maximing "greed",
