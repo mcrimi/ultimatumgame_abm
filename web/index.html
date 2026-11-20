@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>How much can you take? · Mariano Crimi</title>
+<meta name="description" content="An agent-based model of a taking game. Sixty players learn, through shame and greed, how much of each other's money they can claim. It runs in your browser.">
+<link rel="canonical" href="https://marianocrimi.com/ultimatum/">
+<meta property="og:title" content="How much can you take?">
+<meta property="og:description" content="Sixty simulated players learn, through shame and greed, how much they can take from each other.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://marianocrimi.com/ultimatum/">
+<meta property="og:image" content="https://marianocrimi.com/assets/img/og.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%231B1B19'/%3E%3Cpath d='M3.5 12V4l4.5 5 4.5-5v8' fill='none' stroke='%23ECEBE6' stroke-width='1.6'/%3E%3C/svg%3E">
+<script>
+  // Follow the reading settings chosen on marianocrimi.com (same storage key).
+  (function () {
+    var s = {};
+    try { s = JSON.parse(localStorage.getItem("mcrimi-site") || "{}") || {}; } catch (e) {}
+    var root = document.documentElement;
+    root.dataset.theme = s.paper === "night" ? "dark" : "light";
+    if (s.paper === "grey") root.dataset.paper = "grey";
+    root.dataset.font = s.font === "garamond" || s.font === "charter" ? s.font : "literata";
+    if (s.size === "s" || s.size === "l") root.dataset.size = s.size;
+  })();
+</script>
+<link rel="stylesheet" href="ultimatum.css">
+<script type="module" src="js/app.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="in gut">
+    <a class="mark" href="/#portfolio" aria-label="Back to the portfolio on marianocrimi.com">← Portfolio</a>
+    <nav class="nav" aria-label="On this page">
+      <a href="#play">Simulation</a>
+      <a href="#rules">Rules</a>
+      <a href="#findings">Findings</a>
+      <a href="#method">Method</a>
+    </nav>
+    <div class="status">
+      <button class="aa" id="aa" type="button" aria-expanded="false" aria-controls="panel" aria-label="Paper settings">Aa</button>
+    </div>
+    <div class="panel" id="panel" hidden>
+      <div class="grp">
+        <span class="label">Paper</span>
+        <div class="seg" role="group" aria-label="Paper">
+          <button type="button" data-paper="warm">Warm</button>
+          <button type="button" data-paper="grey">Grey</button>
+          <button type="button" data-paper="night">Night</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap gut">
+
+  <section id="play" aria-labelledby="play-h">
+    <p class="label">Agent-based model · Python</p>
+    <h1 id="play-h">How much can you take?</h1>
+    <p class="dek">Sixty players take turns claiming a share of each other’s money. Claim too much and your victim burns the lot. Greed pushes claims up, shame pulls them down, and a society finds its price.</p>
+
+    <div class="sim">
+      <form id="controls" class="controls" aria-label="Simulation settings">
+        <div class="field wide">
+          <span class="label">Start from</span>
+          <div class="presets" id="presets" role="group" aria-label="Presets"></div>
+        </div>
+        <div id="sliders" style="display:contents"></div>
+        <div class="field wide">
+          <div class="buttons">
+            <button type="button" class="btn primary" id="run">Run</button>
+            <button type="button" class="btn" id="step">Step</button>
+            <button type="button" class="btn" id="reset">New world</button>
+          </div>
+        </div>
+        <div class="field wide">
+          <span class="label">Speed</span>
+          <div class="seg" id="speed" role="group" aria-label="Speed">
+            <button type="button" data-speed="3" aria-pressed="false">Slow</button>
+            <button type="button" data-speed="12" aria-pressed="true">Steady</button>
+            <button type="button" data-speed="60" aria-pressed="false">Fast</button>
+          </div>
+        </div>
+        <noscript><p>This page runs a simulation and needs JavaScript. The <a href="report/">full analysis</a> reads without it.</p></noscript>
+      </form>
+
+      <div class="result">
+        <div class="stage">
+          <figure class="plate">
+            <canvas id="ring" width="600" height="600" role="img" aria-label="The sixty players in a ring, with a line between each pair that played this turn"></canvas>
+            <figcaption class="cap">The players. A square’s size is its wealth; an empty square is broke. Thin lines are accepted claims, heavy lines with a cross are rejections.</figcaption>
+          </figure>
+          <figure class="plate">
+            <canvas id="claims" width="760" height="600" role="img" aria-label="Every claim made so far, by turn, with rejected claims marked"></canvas>
+            <figcaption class="cap">Every claim so far: the share demanded, by turn. Dots were accepted, crosses rejected. The dashed line is what responders tolerate on average.</figcaption>
+          </figure>
+        </div>
+        <dl class="readout">
+          <div><dt class="label">Turn</dt><dd id="r-turn">0</dd></div>
+          <div><dt class="label">Rejected</dt><dd id="r-rejected">0%</dd></div>
+          <div><dt class="label">Players broke</dt><dd id="r-broke">0</dd></div>
+          <div><dt class="label">Inequality</dt><dd id="r-gini">0.00</dd></div>
+        </dl>
+        <p class="verdict" id="verdict" aria-live="polite">Press Run.</p>
+        <p class="fine" id="verdict-fine"></p>
+      </div>
+    </div>
+  </section>
+
+  <section id="rules" aria-labelledby="rules-h">
+    <h2 id="rules-h">The rules</h2>
+    <ol class="rules">
+      <li><span>Each turn the players are shuffled into pairs: one <strong>proposer</strong>, one <strong>responder</strong>.</span></li>
+      <li><span>The proposer claims a share of the responder’s money: their <em>take rate</em>.</span></li>
+      <li><span>If the claim is within what the responder tolerates, it is paid, and <strong>greed</strong> nudges the proposer’s take rate up for next time.</span></li>
+      <li><span>If it is too much, the responder destroys all their own money so the proposer gets nothing, and <strong>shame</strong> cuts the proposer’s take rate.</span></li>
+      <li><span>Everyone earns interest. A player with no money cannot be taken from, and one with too little cannot propose.</span></li>
+    </ol>
+    <div class="prose">
+      <p>Economists call this a <em>power-to-take</em> game, a harsher cousin of the ultimatum game. It was used by Reuben and van Winden to study what proposers feel after being punished: those who thought they had taken unfairly felt shame and guilt, and claimed less the next time. This model takes that one finding and asks what it does to a whole society, turn after turn.</p>
+    </div>
+  </section>
+
+  <section id="findings" aria-labelledby="findings-h">
+    <h2 id="findings-h">What happens</h2>
+
+    <h3>1. The first turn is a massacre</h3>
+    <div class="prose">
+      <p>With the original settings, proposers start out claiming 80% and responders tolerate about 50%. Every responder says no. In one turn <span data-fill="ruined">30</span> of the 60 players burn everything they own.</p>
+      <p>The lesson costs the proposers nothing. They keep their money, feel their shame, and come back claiming <span data-fill="after-shame">32</span>%. It is the people they tried to rob who pay for their education.</p>
+    </div>
+    <figure class="chart">
+      <svg id="first-chart" role="img" aria-labelledby="first-cap"></svg>
+      <figcaption id="first-cap" class="cap">Responders ruined in the first turn (of 30), by the take rate proposers start with. Mean of 500 simulated worlds.</figcaption>
+    </figure>
+
+    <h3>2. Then claims saw their way up to the limit, for ever</h3>
+    <div class="prose">
+      <p>A chastened proposer does not stay humble. Each accepted claim makes the next one a little bigger, until it crosses a responder’s limit, is rejected, and collapses again. The take rate never settles: it climbs slowly and falls off a cliff, over and over. Network engineers will recognise the shape. It is how TCP finds the capacity of a link.</p>
+      <p>Because the ups and downs have to cancel in the long run, the share of claims that end in rejection is fixed by shame and greed alone:</p>
+    </div>
+    <p class="formula">rejection rate = log(1 + greed) / ( log(1 + greed) − log(1 − shame) )</p>
+    <div class="prose">
+      <p>How tolerant the responders are does not appear in it. Tolerance decides how high the saw climbs, not how often it falls. With the original settings the formula gives <span data-fill="law-default">5.1</span>%; the simulation gives <span data-fill="law-sim">5.0</span>%.</p>
+    </div>
+    <figure class="chart">
+      <svg id="law-chart" role="img" aria-labelledby="law-cap"></svg>
+      <figcaption id="law-cap" class="cap">Long-run rejection rate against shame, for five levels of greed. Lines: the formula. Squares: simulation (200 worlds of 400 turns each).</figcaption>
+    </figure>
+    <div class="prose">
+      <p>Shame has a second effect. A proposer who drops a long way after each rejection spends most of the time well below what they could get away with. With the original settings responders would tolerate 50%, but the average claim is only about <span data-fill="mean-take">33</span>%. Shame protects responders twice: fewer of them are ruined, and those who are not are taken for less.</p>
+    </div>
+
+    <h3>3. Without a safety net, the game dies</h3>
+    <div class="prose">
+      <p>Interest on nothing is nothing, so a ruined player never recovers. Every rejection removes someone for good, and after a hundred turns about <span data-fill="broke-end">48</span> of the 60 are out. The few left standing own everything.</p>
+      <p>Give every player a small sum each turn and the picture changes. Nobody is out for long, all thirty pairs keep playing, and the wealth is spread far more evenly. The price is that ruined players come back with their original, shameless take rate and get someone else ruined before they learn.</p>
+    </div>
+    <div class="pair">
+      <figure class="chart">
+        <svg id="broke-chart" role="img" aria-labelledby="broke-cap"></svg>
+        <figcaption id="broke-cap" class="cap">Players unable to propose, by turn. Band: 10th to 90th percentile of 500 worlds.</figcaption>
+      </figure>
+      <figure class="chart">
+        <svg id="gini-chart" role="img" aria-labelledby="gini-cap"></svg>
+        <figcaption id="gini-cap" class="cap">Inequality of wealth (Gini coefficient; 0 is equal, 1 is one player owning everything).</figcaption>
+      </figure>
+    </div>
+    <div class="table-wrap">
+      <table id="net-table" class="data">
+        <caption class="label">After 100 turns, by size of the per-turn payment</caption>
+        <thead><tr><th scope="col">Paid to each player per turn</th><th scope="col" class="n">Players broke</th><th scope="col" class="n">Games per turn</th><th scope="col" class="n">Gini</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="method" aria-labelledby="method-h">
+    <h2 id="method-h">How it was built</h2>
+    <div class="prose">
+      <p>I first wrote this model in NetLogo in 2020. This version is a rewrite in Python: a NumPy engine that runs hundreds of worlds at once, the formula above worked out by hand and then checked against simulation, and a test suite.</p>
+      <p>The simulation at the top of this page is not a recording. It is the same model, ported to JavaScript and running in your browser. Both versions draw their randomness from one small generator built only from integer arithmetic, so given the same seed they produce the same world. A test replays trajectories exported from Python and requires the browser version to match them exactly, digit for digit.</p>
+    </div>
+<pre class="flow" aria-label="Pipeline">model.py ── NumPy engine, many worlds at once
+ ├─ theory.py        the rejection-rate formula
+ ├─ experiments.py   sweeps over shame, greed, safety net
+ └─ export.py        experiments.json ──→ charts on this page
+                     fixtures.json    ──→ parity test
+engine.js ── the same model in the browser (Python = JS, exactly)</pre>
+    <ul class="links">
+      <li><a href="report/">Read the full analysis</a><span>the model, the derivation and the experiments</span></li>
+      <li><a href="https://github.com/mcrimi/ultimatumgame_abm" rel="noopener">Source on GitHub</a><span>Python package, tests, this page and the original NetLogo model</span></li>
+      <li><a href="https://doi.org/10.1016/j.joep.2010.08.001" rel="noopener">The experiment behind it</a><span>Reuben and van Winden, 2010</span></li>
+    </ul>
+    <p class="fine">Built by <a href="/">Mariano Crimi</a>. A toy model: it shows what its rules imply, not how people behave.</p>
+  </section>
+
+</main>
+</body>
+</html>
