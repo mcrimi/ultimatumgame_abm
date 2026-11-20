@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+report/index.html
+report/.quarto/
+report/*_files/
+report/.jupyter_cache/
+node_modules/
+dist/
