@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use this model, please cite it, and cite the experiment it is based on."
+title: "How much can you take? An agent-based power-to-take game"
+authors:
+  - family-names: Crimi
+    given-names: Mariano
+version: 2.0.0
+date-released: 2026-11-20
+url: "https://marianocrimi.com/ultimatum/"
+repository-code: "https://github.com/mcrimi/ultimatumgame_abm"
+license: MIT
+references:
+  - type: article
+    title: "Fairness perceptions and prosocial emotions in the power to take"
+    authors:
+      - family-names: Reuben
+        given-names: Ernesto
+      - family-names: van Winden
+        given-names: Frans
+    journal: "Journal of Economic Psychology"
+    volume: 31
+    issue: 6
+    start: 908
+    end: 922
+    year: 2010
+    doi: "10.1016/j.joep.2010.08.001"

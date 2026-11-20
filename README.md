@@ -1,81 +1,119 @@
-## Agent based ultimatum game
+# How much can you take?
 
-![Screenshot](https://github.com/mcrimi/ultimatumgame_abm/blob/master/world.png?raw=true)
+An agent-based model of a taking game, with shame and greed. Sixty players are paired at
+random each turn. One of each pair claims a share of the other's money; the other either pays
+or burns everything they own so the claimant gets nothing. Accepted claimants get greedier,
+rejected ones feel shame and ask for less.
 
-## WHAT IS IT?
+**Live, running in your browser: [marianocrimi.com/ultimatum](https://marianocrimi.com/ultimatum/)**
+· [Full analysis](https://marianocrimi.com/ultimatum/report/)
 
-This is a an excercise model that attempts to describe the emergence of cumulative wealth and the distribution of such wealth in an iterative ultimatum game, considering the prosocial emotion of "shame" and profit-maximing "greed",
+[![CI](https://github.com/mcrimi/ultimatumgame_abm/actions/workflows/ci.yml/badge.svg)](https://github.com/mcrimi/ultimatumgame_abm/actions/workflows/ci.yml)
 
-This  model is inspared by the work of Reuben et al in trying to understand the role of emotions after punishment (in particular shame/guilt) in the take rates of proposers:
+![The simulation page](docs/page.png)
 
-https://www.sciencedirect.com/science/article/abs/pii/S0167487010000887?via%3Dihub
+I wrote the first version in NetLogo in 2020. This is a rewrite in Python that fixes the
+original's pairing bug, explains the model's behaviour in closed form, and ships the same
+engine to the browser with a test that the two agree exactly.
 
+## What the model shows
 
-## ULTIMATUM GAMES
+| Finding | Number |
+|---|---|
+| Responders ruined in the first turn, original settings | 30 of 30 |
+| Long-run share of claims rejected: formula / simulation | 5.06% / 5.03% |
+| Average claim, when responders would tolerate 50% | 33% |
+| Players unable to play after 100 turns, no safety net | 48 of 60 |
+| Same, with 1 unit paid to everyone each turn | 0 of 60 |
 
-One player, the proposer, is endowed with a sum of money. The proposer is tasked with splitting it with another player, the responder. Once the proposer communicates their decision, the responder may accept it or reject it. If the responder accepts, the money is split per the proposal; if the responder rejects, both players receive nothing
+1. **The first turn is a massacre.** Proposers start by claiming 80%, responders tolerate 50%,
+   and every responder destroys their money. The proposers lose nothing.
+2. **Claims never settle; they saw.** A take rate rises 5% per accepted claim and falls 60% on
+   a rejection: multiplicative increase, multiplicative decrease, the shape of TCP congestion
+   control.
+3. **The rejection rate depends only on shame and greed.** In log terms a take rate goes up by
+   `log(1 + greed)` or down by `-log(1 - shame)`, and since it is bounded the two must cancel:
 
+   ```
+   rejection rate = log(1 + greed) / (log(1 + greed) - log(1 - shame))
+   ```
 
-Ultimatum games: https://en.wikipedia.org/wiki/Ultimatum_game
+   Responders' tolerance sets how high claims climb, not how often they are rejected.
+   Simulation agrees with the formula to within 0.004 across 45 settings.
+4. **Without a safety net the game dies.** A ruined player earns no interest and never comes
+   back. A small payment each turn keeps everyone playing and roughly halves inequality.
 
-## HOW IT WORKS
-60 players are created and endowed with an initial amount of money - 10 euros. This initial endowment can be taken from a distribution (exponential or normal) or be equal for all the participants. This is controlled by the **initial-endowment-distribution** selector.
+It is in fact a *power-to-take* game, not a textbook ultimatum game: the proposer takes from
+the responder's money. The setup follows
+[Reuben and van Winden (2010)](https://doi.org/10.1016/j.joep.2010.08.001), who found that
+punished proposers who felt shame lowered their claims.
 
-Players are also assigned with a take-rate in the case they are proposers (**prop-take-rate**) and one for when they take the roles of responders (**resp-take-rate**). The proposer take rate will determine the offer of the proposer while the responder take rate will determine the amount that the responder agrees to from the proposer to take.
+## How it is built
 
-To cater for variabilities in fairness perceptions in the different players the take rates are taken from a normal distribution with mean **mean-take-rate** and **sd-take-rate** both for the responder and proposer rates.
+```
+src/ultimatum_abm/
+  rng.py           counter-based random numbers from 32-bit integer maths
+  model.py         the game, vectorised over many worlds with NumPy
+  theory.py        the rejection-rate law and the sawtooth average
+  experiments.py   sweeps over shame, greed, starting take rate and safety net
+  export.py        JSON for the page, and trajectories for the parity test
+  cli.py           `ultimatum-abm build` and `ultimatum-abm run`
+tests/             pytest: rules, conservation of money, theory against simulation
+web/               the page: plain HTML, CSS and ES modules, no build step
+  js/engine.js     the same model in JavaScript
+  test/            node tests, including exact Python-to-JS parity
+report/index.qmd   the analysis (Quarto, Python)
+docs/ODD.md        model description in the ODD protocol
+archive/           the 2020 NetLogo model and its README
+```
 
-Each turn these players are randomly assigned to the role of responder (red) and proposer (blue) and responders and proposers are paired with each other, also randomly.
+Things worth a look:
 
-If the responder has an endowment and the proposers endowment is more than the **cost-to-play** then a link is established between the two and a proposal is made by the proposer to take an amount of the endowment of the responder according to the **prop-take-rate** of the proposer. 
+- **One model, two languages, zero drift.** Random numbers are a pure function of
+  `(seed, stream, counter)` built from a MurmurHash3 finaliser, so NumPy and JavaScript
+  produce identical streams. Python exports full trajectories; `web/test/engine.test.js`
+  replays them through the browser engine and requires exact floating-point equality on every
+  player, every turn.
+- **Theory is tested, not asserted.** `tests/test_theory.py` checks the rejection-rate law
+  against simulation, and that changing tolerance leaves it unchanged.
+- **Fast.** 2,000 worlds of 100 turns run in about half a second.
 
-If the proposed take rate is lower or equal to the what the responder considers fair (**resp-take-rate**) there is a "deal" and the proposed proportion of the responders endowment will pass to the proposer and be deducted from the responders.
+### What was wrong with the 2020 version
 
-If the proposed take rate is larger than the one that the responder considers fair (**resp-take-rate**) there is no deal, and the proposer will set his/her endowment to 0 effectively destroying their wealth.
+Responders were linked to whoever stood on neighbouring patches, so a responder could face
+several proposers at once, or none, or another responder, and each linked player was paid the
+transfer: money appeared from nowhere. Pairing is now one-to-one and money is conserved, with
+a test for both. Details are in the [report](https://marianocrimi.com/ultimatum/report/).
 
-Those proposers who got they proposal rejected will reduce the prop-take-rate by a percentage corresponding to the **prop-shame-weight** for next time.
+## Run it
 
-Those proposers who got they proposal accepted will increase the prop-take-rate by a percentage corresponding to the **prop-greed-weight** for next time.
+Needs [uv](https://docs.astral.sh/uv/); Node 20+ for the browser tests; Quarto for the report.
 
-For the next turn every player's endowment will be increased by a fixed amount defined by the **turn-endowment** global variable simulating a wellfare endowment. 
+```sh
+uv sync --group report
+uv run pytest                         # 35 tests
+uv run ultimatum-abm run --turn-endowment 1 --turns 400
+uv run ultimatum-abm build            # web/data/experiments.json, web/test/fixtures.json
+npm test                              # 17 tests, including parity with Python
+QUARTO_PYTHON=.venv/bin/python quarto render report/index.qmd
+python3 -m http.server -d web 8000    # the page, at http://localhost:8000
+```
 
-Additionally, the current endowment of the players (not considering the wellfare endowment) will be increased by 1+**interest-rate** each turn
+```python
+import numpy as np
+from ultimatum_abm import Params, equilibrium, run
 
-The game will end after 100 turns. If no proposals can be made (no proposers can afford the cost-to-play and/or responders have 0 endowment left) the game will end.
+params = Params(shame=0.3, greed=0.05, turn_endowment=1.0, turns=400)
+history = run(params, seeds=np.arange(200))   # 200 worlds at once
+print(history.rejection_rate[150:].mean(), equilibrium(params).rejection_rate)
+```
 
-## THINGS TO NOTICE
+## Limitations
 
-- Which starting point of take rates (both responder and proposer) and combination of adjusting behavior (greed/shame) will be the best agent for a given agent to maximize long term profit.
-- Cummulative weatlh - what is the best settings and players strategy to reach the best cumulative wealth?
-- Wealth distribution - what is the best settings and players  strategy to achieve the fairest wealth distribution?
-- Players out of the game - the amount of players that can no longer play because they can't affor the cost-to-play.
-- How many turns does the game last?
+Responders never learn; shame and greed are the same for everyone; destruction is all or
+nothing; and the closed-form results assume everyone keeps playing. It is a toy: it shows
+what these rules imply, not how people behave.
 
+## Licence and citation
 
-## THINGS TO TRY
-
-- Try cost to play = 0 (everyone can propose)
-- Explore the relationship between turn-endowment and cost-to-play
-- Comapre fixed endowment with interest rate on current endowment and how that affects the wealth distribution
-
-## EXTENDING THE MODEL
-
-- Compare this model with one where the players stick to they roles (once a proposer/responder always a proposer/responder)
-- Wellfare endowment could be a proportion of the amount taken from the responders in succesfull operations in each turn. This would simulate an authority redistributing wealth.
-- Eplore different distributions in the resp-take-rates and prop-take-rate
-- Include and adjusting behavior on the resp-take-rate for the responder after destroying the endowment.
-- This model only considers take-rates for the responder decison to wether destroy the endowment or not. It is clear that the abolute value of the take should also be considered.
-- Greed and shame weights are assumed to be equal for all participants. These could be drawn from a distribution to add some more randomness to the model.
-- This models response in binary terms (destroy all vs accept) . This model could be extended to consider partial endowment destroy.
-
-
-## RELATED MODELS
-
-Wealth distribution
-
-## CREDITS AND REFERENCES
-
-Author: Mariano Crimi
-
-https://www.sciencedirect.com/science/article/abs/pii/S0167487010000887?via%3Dihub
-https://www.nature.com/articles/s41598-017-05122-5
+Code is MIT licensed. See `CITATION.cff`.

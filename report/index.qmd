@@ -1,0 +1,316 @@
+---
+title: "How much can you take?"
+subtitle: "Shame, greed and ruin in an agent-based power-to-take game"
+author: "Mariano Crimi"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    embed-resources: true
+    theme: none
+    minimal: true
+    css: paper.css
+    include-in-header: header.html
+    include-before-body: before.html
+    html-math-method: mathml
+    highlight-style: none
+    code-fold: true
+    code-summary: "Code"
+    fig-width: 7
+    fig-height: 4.2
+    fig-dpi: 160
+execute:
+  echo: true
+  warning: false
+jupyter: python3
+---
+
+```{python}
+#| include: false
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from IPython.display import Markdown
+
+from ultimatum_abm import Params, equilibrium, run
+from ultimatum_abm.experiments import first_turn, law_grid, long_run, safety_net
+from ultimatum_abm.model import initial_population, step
+from ultimatum_abm.theory import mean_take_fraction, rejection_rate
+
+INK = "#1B1B19"
+plt.rcParams.update({
+    "figure.facecolor": "white", "axes.facecolor": "white", "savefig.facecolor": "white",
+    "text.color": INK, "axes.edgecolor": INK, "axes.labelcolor": INK,
+    "xtick.color": INK, "ytick.color": INK, "axes.spines.top": False,
+    "axes.spines.right": False, "axes.linewidth": 0.6, "font.size": 10,
+    "legend.frameon": False, "lines.color": INK, "axes.prop_cycle": plt.cycler(color=[INK]),
+})
+STYLES = ["-", "--", ":", "-.", (0, (5, 1, 1, 1, 1, 1))]
+SEEDS = np.arange(1, 501)
+defaults = Params()
+net = defaults.with_(turn_endowment=1.0)
+eq = equilibrium(defaults)
+table = lambda df, **kw: Markdown(df.to_markdown(index=False, **kw))
+```
+
+## Summary
+
+This is a rebuild of an agent-based model I wrote in NetLogo in 2020. Sixty players are
+paired at random each turn. One of each pair, the proposer, claims a share of the other's
+money. The responder either pays, or destroys everything they own so that the proposer gets
+nothing. A proposer whose claim is accepted grows greedier; one who is rejected feels shame
+and asks for less next time.
+
+```{python}
+#| echo: false
+h_default = run(defaults, SEEDS)
+h_net = run(net.with_(turns=400), SEEDS[:200])
+lr = long_run(h_net)
+Markdown(f"""
+- **The first turn is a massacre.** With the original settings every responder rejects, and
+  {h_default.rejected[0].mean():.0f} of 60 players lose everything at once. The proposers who
+  caused it lose nothing.
+- **Claims never settle. They saw.** A take rate creeps up by {defaults.greed:.0%} per accepted
+  claim until it is rejected, then drops by {defaults.shame:.0%}. It is the pattern of TCP
+  congestion control.
+- **The rejection rate is set by shame and greed alone:**
+  $\\log(1+g) / (\\log(1+g) - \\log(1-s))$. For the original settings that is
+  {eq.rejection_rate:.1%}; simulation gives {lr['rejection_rate']:.1%}. How tolerant responders
+  are does not enter.
+- **Shame protects responders twice.** Fewer are ruined, and the average claim
+  ({lr['mean_claim']:.0%}) sits well below what they would tolerate ({defaults.tolerance_mean:.0%}).
+- **Without a safety net the game dies.** A ruined player earns no interest and never returns.
+  After 100 turns {h_default.broke[-1].mean():.0f} of 60 cannot play and the Gini coefficient
+  is {h_default.gini[-1].mean():.2f}. A payment of 1 per turn keeps everyone in.
+""")
+```
+
+The [web page](../) runs the same model in the browser.
+
+## The game
+
+The model is a *power-to-take* game rather than a textbook ultimatum game. In the ultimatum
+game a proposer offers a split of their own windfall. Here the proposer takes from the
+responder's money, and the responder's only weapon is to burn their own wealth. The setup
+follows the experiment of
+[Reuben and van Winden (2010)](https://doi.org/10.1016/j.joep.2010.08.001), who found that
+proposers who had taken what they themselves thought unfair felt shame and guilt after being
+punished, and lowered their claims. The model takes that one mechanism and repeats it across
+a population.
+
+**Each turn:**
+
+1. Players are shuffled. Half become responders, half proposers, and they are paired off.
+2. A pair plays if the responder has any money and the proposer has at least `cost_to_play`.
+3. The proposer claims their *take rate* times the responder's money.
+4. If the take rate is at most the responder's *tolerance*, the money moves and the proposer's
+   take rate is multiplied by `1 + greed` (capped at 1). Otherwise the responder's money is
+   destroyed and the proposer's take rate is multiplied by `1 - shame`.
+5. Everyone earns `interest` on what they hold, then receives `turn_endowment`.
+
+```{python}
+#| echo: false
+rows = [
+    ("players", defaults.players, "Number of players"),
+    ("take_mean, take_sd", f"{defaults.take_mean}, {defaults.take_sd}", "Starting take rates (normal)"),
+    ("tolerance_mean, tolerance_sd", f"{defaults.tolerance_mean}, {defaults.tolerance_sd}", "Largest take rate a responder accepts (normal, fixed for life)"),
+    ("shame", defaults.shame, "Cut in take rate after a rejection"),
+    ("greed", defaults.greed, "Rise in take rate after an acceptance"),
+    ("endowment", f"normal({defaults.endowment_mean:g}, {defaults.endowment_sd:g})", "Starting money"),
+    ("interest", defaults.interest, "Interest per turn"),
+    ("turn_endowment", defaults.turn_endowment, "Paid to every player each turn"),
+    ("cost_to_play", defaults.cost_to_play, "Money a proposer needs in order to propose"),
+]
+table(pd.DataFrame(rows, columns=["Parameter", "Default", "Meaning"]))
+```
+
+The defaults are the settings saved in the 2020 NetLogo file.
+
+### What changed from the NetLogo version
+
+| 2020 model | This version | Why |
+|---|---|---|
+| Responders linked to whichever players stood on neighbouring patches | Each responder is paired with exactly one proposer | In the original a responder could face several proposers, or none, or another responder. Transfers were then paid to every linked player, so money was created |
+| Stopped as soon as one turn had no games | Runs a fixed number of turns | Keeps runs comparable; idle turns are recorded as such |
+| Called an ultimatum game | Described as a power-to-take game | That is the game the rules implement |
+| Explored by moving sliders | Closed-form predictions, tested against simulation | The interesting behaviour has an exact explanation |
+
+The README of the original said rejected proposers lose their money. The code destroyed the
+responder's, which is also what the power-to-take game specifies, and that is what is kept.
+
+## The first turn
+
+Proposers start at a take rate of about 80%; responders tolerate about 50%. Nobody has learned
+anything yet, so every claim is rejected.
+
+```{python}
+#| fig-cap: "Responders ruined in the first turn, out of 30, by the take rate proposers start with."
+ft = pd.DataFrame(first_turn())
+fig, ax = plt.subplots()
+ax.plot(ft.take_mean, ft.ruined, marker="s", ms=4, lw=1)
+ax.axvline(defaults.tolerance_mean, ls=":", lw=0.8)
+ax.text(defaults.tolerance_mean + 0.008, 1, "mean tolerance", fontsize=8)
+ax.set(xlabel="Starting take rate", ylabel="Responders ruined", ylim=(0, 31))
+ax.xaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
+plt.show()
+```
+
+The cost of this lesson falls entirely on the responders. A rejected proposer keeps their
+money and comes back claiming $0.8 \times (1 - 0.6) = 0.32$.
+
+## The sawtooth
+
+```{python}
+#| fig-cap: "Take rate of four proposers over 150 turns (with a per-turn payment so that everyone keeps playing). Dotted line: mean tolerance."
+params = net.with_(turns=150)
+seed = np.array([7])
+pop = initial_population(params, seed)
+trace = []
+for t in range(params.turns):
+    step(pop, params, seed, t)
+    trace.append(pop.take[0, :4].copy())
+trace = np.array(trace)
+fig, ax = plt.subplots()
+for i in range(4):
+    ax.plot(trace[:, i], lw=0.9, ls=STYLES[i])
+ax.axhline(params.tolerance_mean, ls=":", lw=0.8)
+ax.set(xlabel="Turn", ylabel="Take rate", ylim=(0, 1))
+ax.yaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
+plt.show()
+```
+
+After the first shock each proposer climbs by 5% per accepted claim, crosses some responder's
+tolerance, and falls by 60%. Flat stretches are turns spent as a responder or without a game.
+Multiplicative increase with multiplicative decrease is the scheme TCP uses to probe the
+capacity of a network link, and it gives the same sawtooth.
+
+### The rejection-rate law
+
+Write $x = \log(\text{take rate})$. Each time a proposer plays, $x$ rises by
+$L_g = \log(1 + g)$ if accepted and falls by $L_s = -\log(1 - s)$ if rejected. The take rate
+is confined to $(0, 1]$, so over a long run the rises and falls must cancel. If a share $r$ of
+a proposer's claims are rejected,
+
+$$(1 - r)\,L_g = r\,L_s \quad\Longrightarrow\quad r = \frac{L_g}{L_g + L_s} = \frac{\log(1+g)}{\log(1+g) - \log(1-s)}$$
+
+Nothing about the responders appears. Their tolerance fixes the height at which the walk
+turns round, not how often it turns. Equivalently, one rejection takes $L_s / L_g$ accepted
+claims to undo: `{python} f"{-np.log1p(-defaults.shame) / np.log1p(defaults.greed):.1f}"` with
+the default settings.
+
+```{python}
+#| fig-cap: "Long-run rejection rate. Lines: the formula. Squares: simulation, 200 worlds of 400 turns, first 150 discarded."
+law = pd.DataFrame(law_grid())
+s = np.linspace(0.02, 0.98, 200)
+fig, ax = plt.subplots()
+for style, (g, grp) in zip(STYLES, law.groupby("greed")):
+    ax.plot(s, rejection_rate(s, g), ls=style, lw=1, label=f"greed {g:.0%}")
+    ax.plot(grp.shame, grp.rejection_rate, "s", ms=3.5)
+ax.set(xlabel="Shame", ylabel="Share of claims rejected", ylim=(0, 1))
+ax.xaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
+ax.yaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
+ax.legend()
+plt.show()
+```
+
+```{python}
+#| echo: false
+err = (law.rejection_rate - law.predicted_rejection_rate).abs()
+tol = [long_run(run(net.with_(tolerance_mean=m, turns=400), SEEDS[:200]))["rejection_rate"] for m in (0.2, 0.5, 0.8)]
+Markdown(f"Across the {len(law)} settings the largest gap between formula and simulation is "
+         f"{err.max():.4f} (mean {err.mean():.4f}). Moving the mean tolerance from 20% to 50% to 80% "
+         f"gives rejection rates of {tol[0]:.3f}, {tol[1]:.3f} and {tol[2]:.3f}: no effect, as predicted.")
+```
+
+### How much is taken
+
+When responders' tolerances are close together, a proposer's take rate cycles between a
+ceiling $c$ (about the mean tolerance) and a floor $c(1 - s)$, spending equal time in equal
+steps of $\log$ take rate. Averaging over a cycle,
+
+$$\text{average take} \approx c \cdot \frac{s}{-\log(1 - s)}$$
+
+```{python}
+#| fig-cap: "Average claim as a share of what responders tolerate. Line: the sawtooth approximation. Markers: simulation at each level of greed."
+fig, ax = plt.subplots()
+ax.plot(s, mean_take_fraction(s), lw=1)
+for marker, (g, grp) in zip("s^ovD", law.groupby("greed")):
+    ax.plot(grp.shame, grp.mean_claim / defaults.tolerance_mean, marker, ms=4, mfc="white", label=f"greed {g:.0%}")
+ax.set(xlabel="Shame", ylabel="Average claim / tolerance", ylim=(0, 1.1))
+ax.xaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
+ax.legend()
+plt.show()
+```
+
+The approximation is good when greed is small and runs low when greed is large, because a
+proposer who climbs in big steps overshoots the ceiling before being stopped. It is an
+approximation; the rejection-rate law is exact.
+
+Together the two results describe a trade-off that shame controls. Little shame means claims
+stay near the limit and a large share of them end in ruin. Much shame means rejections are
+rare and proposers spend most of their time asking for far less than they could get.
+
+## Ruin and the safety net
+
+```{python}
+#| fig-cap: "Players unable to propose (left) and Gini coefficient of wealth (right). Mean of 500 worlds, with the 10th to 90th percentile shaded."
+fig, axes = plt.subplots(1, 2, figsize=(8, 3.6))
+turns = np.arange(1, defaults.turns + 1)
+h_one = run(net, SEEDS)
+for ax, key, label in zip(axes, ("broke", "gini"), ("Players broke", "Gini coefficient")):
+    for h, style, name in ((h_default, "-", "no payment"), (h_one, "--", "1 per turn")):
+        v = getattr(h, key)
+        ax.fill_between(turns, *np.percentile(v, [10, 90], axis=1), color=INK, alpha=0.12, lw=0)
+        ax.plot(turns, v.mean(axis=1), ls=style, lw=1, label=name)
+    ax.set(xlabel="Turn", ylabel=label)
+axes[0].legend()
+plt.tight_layout()
+plt.show()
+```
+
+With no per-turn payment, interest on nothing is nothing: a player who destroys their money
+is out for good, and because they cannot propose they also never learn. Each rejection removes
+one more player. The survivors are the first turn's proposers, who collect interest and each
+other's money while the number of games falls towards zero.
+
+```{python}
+#| echo: false
+sn = pd.DataFrame(safety_net())
+table(sn[["turn_endowment", "broke_at_end", "games_per_turn", "gini_at_end"]].rename(columns={
+    "turn_endowment": "Paid per turn", "broke_at_end": "Players broke at turn 100",
+    "games_per_turn": "Games per turn (of 30)", "gini_at_end": "Gini at turn 100"}), floatfmt=".2f")
+```
+
+A small payment is enough to keep the society playing. It has a cost the table does not show:
+ruined players return with the take rate they started with, never having been shamed, and
+their first claim ruins someone else. With a safety net the lesson of the first turn is
+re-taught for many turns before the population has learned it.
+
+## Limitations
+
+- **Responders never learn.** Tolerance is fixed for life. A responder who has burned their
+  money might reasonably tolerate more next time; the model does not allow it.
+- **One number per emotion.** Shame and greed are the same for everyone and do not depend on
+  how unfair the claim was. Reuben and van Winden's point was precisely that fairness
+  perceptions differ.
+- **Destruction is all or nothing.** In the experiments responders could destroy part of
+  their income.
+- **The predictions assume everyone keeps playing.** They hold with a per-turn payment and
+  fail without one, as shown above.
+- **Interest makes wealth grow without bound,** so totals are not meaningful across long runs.
+  Shares and the Gini coefficient are.
+- It is a toy. It shows what these rules imply, not how people behave.
+
+## Reproducing this
+
+```sh
+uv sync --group report
+uv run pytest                      # the model and the theory
+uv run ultimatum-abm build         # experiments and browser fixtures
+npm test                           # the browser engine, checked against Python
+quarto render report/index.qmd
+```
+
+Random numbers come from a counter-based generator (`ultimatum_abm/rng.py`) built from 32-bit
+integer operations, so a seed gives the same world in NumPy and in JavaScript. A test replays
+trajectories exported from Python through the browser engine and requires exact equality.
